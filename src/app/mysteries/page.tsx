@@ -86,7 +86,10 @@ export default function MysteriesIndexPage() {
                                 </div>
 
                                 <CardContent className="p-6 md:p-8 space-y-3">
-                                    <Badge className={`rounded-full border ${CATEGORY_META[featured.category].badgeClass}`}>
+                                    <Badge
+                                        variant="secondary"
+                                        className={`rounded-full border ${CATEGORY_META[featured.category].badgeClass}`}
+                                    >
                                         {CATEGORY_META[featured.category].label}
                                     </Badge>
                                     <div className="text-2xl md:text-3xl font-semibold leading-tight">{featured.title}</div>
