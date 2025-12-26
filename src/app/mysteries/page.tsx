@@ -44,6 +44,7 @@ export default function MysteriesIndexPage() {
                         <div className="relative flex-1">
                             <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-3.5" />
                             <Input
+                                type="text"
                                 className="pl-9 rounded-2xl"
                                 value={q}
                                 onChange={(e) => setQ(e.target.value)}
