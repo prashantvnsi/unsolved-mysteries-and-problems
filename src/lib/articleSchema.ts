@@ -29,6 +29,14 @@ export const ArticleSchema = z.object({
         )
         .min(2)
         .max(8),
+    meta: z
+        .object({
+            generatedAt: z.string(),
+            model: z.string(),
+            style: z.string(),
+            cacheVersion: z.string(),
+        })
+        .optional(),
 });
 
 export type Article = z.infer<typeof ArticleSchema>;

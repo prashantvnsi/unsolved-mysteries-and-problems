@@ -9,18 +9,18 @@ const groq = new OpenAI({
     baseURL: "https://api.groq.com/openai/v1", // OpenAI-compatible Groq endpoint :contentReference[oaicite:11]{index=11}
 });
 
-function cacheKey(id: string) {
-    return `mystery:${CACHE_VERSION}:${id}`;
+function cacheKey(id: string, style: string) {
+    return `mystery:${CACHE_VERSION}:${id}:style:${style}`;
 }
-function lockKey(id: string) {
-    return `mystery:${CACHE_VERSION}:${id}:lock`;
+function lockKey(id: string, style: string) {
+    return `mystery:${CACHE_VERSION}:${id}:style:${style}:lock`;
 }
 
 function sleep(ms: number) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
-export async function getOrGenerateArticle(id: string): Promise<{ article: Article; fromCache: boolean }> {
+export async function getOrGenerateArticle(id: string, style: string = "default"): Promise<{ article: Article; fromCache: boolean }> {
     const normalizedId = decodeURIComponent(id).trim().toLowerCase();
 
     // TEMP DEBUG (remove later)
@@ -31,18 +31,18 @@ export async function getOrGenerateArticle(id: string): Promise<{ article: Artic
     if (!topic) throw new Error("Unknown topic id");
 
     // 1) Cache hit?
-    const cached = await redis.get<Article>(cacheKey(id));
+    const cached = await redis.get<Article>(cacheKey(id, style));
     if (cached) return { article: cached, fromCache: true };
 
     // 2) Acquire a lock (prevents multiple users generating the same topic at the same time)
     // SET lock NX EX is supported by Upstash redis.set options :contentReference[oaicite:12]{index=12}
-    const gotLock = await redis.set(lockKey(id), "1", { nx: true, ex: 60 });
+    const gotLock = await redis.set(lockKey(id, style), "1", { nx: true, ex: 60 });
 
     // If someone else is generating, wait briefly and re-check cache
     if (gotLock !== "OK") {
         for (let i = 0; i < 12; i++) {
             await sleep(1000);
-            const c2 = await redis.get<Article>(cacheKey(id));
+            const c2 = await redis.get<Article>(cacheKey(id, style));
             if (c2) return { article: c2, fromCache: true };
         }
         // If still not ready, continue anyway (rare) — try generating ourselves.
@@ -59,8 +59,22 @@ export async function getOrGenerateArticle(id: string): Promise<{ article: Artic
         "Include the word JSON in your output requirements.",
     ].join(" ");
 
+    const styleInstruction =
+        style === "short"
+            ? "Write a shorter version. Keep sections tighter. Prefer punchy paragraphs."
+            : style === "eli12"
+                ? "Explain like the reader is 12. Use simple language and everyday examples."
+                : style === "technical"
+                    ? "Make it more technical. Include more precise language and mechanisms."
+                    : style === "analogies"
+                        ? "Use more analogies and vivid mental pictures, while staying accurate."
+                        : "Write a balanced, magazine-style explainer.";
+
     const user = `
 Write a blog-style article about this open scientific mystery.
+
+STYLE:
+${styleInstruction}
 
 Topic:
 - id: ${topic.id}
@@ -138,6 +152,8 @@ Constraints:
         throw new Error("MODEL_SECTIONS_EMPTY");
     }
 
+    const modelUsed = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+
     const merged = {
         id: String(obj?.id ?? topic.id),
         title: String(obj?.title ?? topic.title),
@@ -159,15 +175,21 @@ Constraints:
                 }))
                 .filter((s: any) => s.label && s.url)
             : [],
+        meta: {
+            generatedAt: new Date().toISOString(),
+            model: modelUsed,
+            style,
+            cacheVersion: CACHE_VERSION,
+        },
     };
 
     const article = ArticleSchema.parse(merged);
 
     // 4) Cache forever (no TTL)
-    await redis.set(cacheKey(id), article);
+    await redis.set(cacheKey(id, style), article);
 
     // 5) Release lock (best-effort)
-    await redis.del(lockKey(id));
+    await redis.del(lockKey(id, style));
 
     return { article, fromCache: false };
 }
